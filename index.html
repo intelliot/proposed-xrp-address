@@ -1,0 +1,239 @@
+<script src="bundle.js"></script>
+
+<script>
+    var rAddressInput, tag
+
+    onload = function () {
+        rAddressInput = document.getElementById('rAddress')
+        tagInput = document.getElementById('tag')
+        xrpAddressInput = document.getElementById('xrpAddress')
+
+        convertRAddressToXrpAddress()
+
+        // Not supported by IE8-
+        rAddressInput.oninput = convertRAddressToXrpAddress
+        tagInput.oninput = convertRAddressToXrpAddress
+        xrpAddressInput.oninput = convertXrpAddressToRAddress
+    }
+
+    function convertRAddressToXrpAddress() {
+        var address = rAddressInput.value
+        var addressBytes = rippleAddressCodec.decodeAccountID(address)
+        var tagBytes = hexToBytes(intToHex(parseInt(tagInput.value, 10), 4))
+        var xrpAddress = encode('xrp', convertbits(addressBytes.concat(tagBytes), 8, 5, true))
+        
+        // Check that the address decodes correctly
+        var dec = decode(xrpAddress)
+        var res = convertbits(dec.data, 5, 8, false)
+
+        var resAddressBytes = res.slice(0, -4)
+        var resTagBytes = res.slice(-4)
+
+        var resAddress = rippleAddressCodec.encodeAccountID(resAddressBytes)
+        var resTag = parseInt(bytesToHex(resTagBytes), 16).toString()
+
+        if (!arraysEqual(resAddressBytes, addressBytes) ||
+            !arraysEqual(resTagBytes, tagBytes) ||
+            resAddress !== address ||
+            resTag !== tagInput.value) {
+
+            console.error('Decoding failed')
+            console.error(resAddressBytes, addressBytes, resTagBytes, tagBytes)
+            console.error(resAddress, address, resTag, tagInput.value)
+            return
+        }
+
+        xrpAddressInput.value = xrpAddress
+    }
+
+    function convertXrpAddressToRAddress() {
+        var dec = decode(xrpAddressInput.value)
+        var res = convertbits(dec.data, 5, 8, false)
+        var addressBytes = res.slice(0, -4)
+        var tagBytes = res.slice(-4)
+        var rAddress = rippleAddressCodec.encodeAccountID(addressBytes)
+        var tag = parseInt(bytesToHex(tagBytes), 16).toString()
+
+        // Check that the address encodes correctly
+        var addressBytes = rippleAddressCodec.decodeAccountID(rAddress)
+        var tagBytes = hexToBytes(intToHex(parseInt(tag, 10), 4))
+        var xrpAddress = encode('xrp', convertbits(addressBytes.concat(tagBytes), 8, 5, true))
+
+        if (xrpAddress !== xrpAddressInput.value) {
+            console.error('Decoding failed')
+            console.error(xrpAddress, xrpAddressInput.value)
+            return
+        }
+        
+        rAddressInput.value = rAddress
+        tagInput.value = tag
+    }
+
+    function arraysEqual(a, b) {
+        return a.length === b.length && a.every( (v, i) => v === b[i] )
+    }
+
+    function hexToBytes(hex) {
+        for (var bytes = [], c = 0; c < hex.length; c += 2)
+           bytes.push(parseInt(hex.substr(c, 2), 16));
+        return bytes;
+    }
+
+    function bytesToHex(bytes) {
+        for (var hex = [], i = 0; i < bytes.length; i++) {
+            hex.push((bytes[i] >>> 4).toString(16));
+            hex.push((bytes[i] & 0xF).toString(16));
+        }
+        return hex.join("");
+    }
+
+    function padLeftZero(string, length) {
+        return Array(length - string.length + 1).join('0') + string;
+    }
+
+    function intToHex(integer, byteLength) {
+        return padLeftZero(Number(integer).toString(16), byteLength * 2);
+    }
+
+    function convertbits (data, frombits, tobits, pad) {
+        var acc = 0;
+        var bits = 0;
+        var ret = [];
+        var maxv = (1 << tobits) - 1;
+        for (var p = 0; p < data.length; ++p) {
+            var value = data[p];
+            if (value < 0 || (value >> frombits) !== 0) {
+                return null;
+            }
+            acc = (acc << frombits) | value;
+            bits += frombits;
+            while (bits >= tobits) {
+                bits -= tobits;
+                ret.push((acc >> bits) & maxv);
+            }
+        }
+        if (pad) {
+            if (bits > 0) {
+                ret.push((acc << (tobits - bits)) & maxv);
+            }
+        } else if (bits >= frombits || ((acc << (tobits - bits)) & maxv)) {
+            return null;
+        }
+        return ret;
+    }
+
+    var CHARSET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
+    var GENERATOR = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3];
+
+    function polymod (values) {
+        var chk = 1;
+        for (var p = 0; p < values.length; ++p) {
+            var top = chk >> 25;
+            chk = (chk & 0x1ffffff) << 5 ^ values[p];
+            for (var i = 0; i < 5; ++i) {
+            if ((top >> i) & 1) {
+                chk ^= GENERATOR[i];
+            }
+            }
+        }
+        return chk;
+    }
+
+    function hrpExpand (hrp) {
+    var ret = [];
+    var p;
+    for (p = 0; p < hrp.length; ++p) {
+        ret.push(hrp.charCodeAt(p) >> 5);
+    }
+    ret.push(0);
+    for (p = 0; p < hrp.length; ++p) {
+        ret.push(hrp.charCodeAt(p) & 31);
+    }
+    return ret;
+    }
+
+    function verifyChecksum (hrp, data) {
+    return polymod(hrpExpand(hrp).concat(data)) === 1;
+    }
+
+    function createChecksum (hrp, data) {
+    var values = hrpExpand(hrp).concat(data).concat([0, 0, 0, 0, 0, 0]);
+    var mod = polymod(values) ^ 1;
+    var ret = [];
+    for (var p = 0; p < 6; ++p) {
+        ret.push((mod >> 5 * (5 - p)) & 31);
+    }
+    return ret;
+    }
+
+    function encode (hrp, data) {
+        var combined = data.concat(createChecksum(hrp, data));
+        var ret = hrp + '1';
+        for (var p = 0; p < combined.length; ++p) {
+            var next = CHARSET.charAt(combined[p]);
+            if (next === '') {
+                console.error('Invalid byte')
+            }
+            ret += next;
+        }
+        return ret;
+    }
+
+    function decode (bechString) {
+    var p;
+    var has_lower = false;
+    var has_upper = false;
+    for (p = 0; p < bechString.length; ++p) {
+        if (bechString.charCodeAt(p) < 33 || bechString.charCodeAt(p) > 126) {
+        return null;
+        }
+        if (bechString.charCodeAt(p) >= 97 && bechString.charCodeAt(p) <= 122) {
+            has_lower = true;
+        }
+        if (bechString.charCodeAt(p) >= 65 && bechString.charCodeAt(p) <= 90) {
+            has_upper = true;
+        }
+    }
+    if (has_lower && has_upper) {
+        return null;
+    }
+    bechString = bechString.toLowerCase();
+    var pos = bechString.lastIndexOf('1');
+    if (pos < 1 || pos + 7 > bechString.length || bechString.length > 90) {
+        return null;
+    }
+    var hrp = bechString.substring(0, pos);
+    var data = [];
+    for (p = pos + 1; p < bechString.length; ++p) {
+        var d = CHARSET.indexOf(bechString.charAt(p));
+        if (d === -1) {
+        return null;
+        }
+        data.push(d);
+    }
+    if (!verifyChecksum(hrp, data)) {
+        return null;
+    }
+    return {hrp: hrp, data: data.slice(0, data.length - 6)};
+    }
+</script>
+
+<style>
+    label {
+        display: inline-block;
+        width: 150px;
+        text-align: right;
+    }
+</style>
+
+<h1>xrp address converter (proposed)</h1>
+<h2>using Bech32</h2>
+
+<label for="rAddress">r address:</label> <input type="text" id="rAddress" size="50" value="r4trpUjmrK9i11h1hyCAdqeEVAuSphpCCX"><br>
+<label for="tag">tag:</label> <input type="text" id="tag" value="0"><br>
+<br>
+<label>&lt;-&gt;</label><br>
+<br>
+<label for="xrpAddress">xrp address:</label> <input type="text" id="xrpAddress" size="50"><br>
+<br>
+The above "xrp address" was generated by decoding the r address, appending the tag (as a 32-bit integer), and performing a Bech32 encoding (with HRP = 'xrp'). This tool has <b>not</b> been thoroughly tested.
