@@ -8,18 +8,39 @@
         tagInput = document.getElementById('tag')
         xrpAddressInput = document.getElementById('xrpAddress')
 
-        convertRAddressToXrpAddress()
+        convertRAddressToXrpAddress({target: rAddressInput})
+
+        rAddress2Input = document.getElementById('rAddress2')
+        tag2Input = document.getElementById('tag2')
+        xrpAddress2Input = document.getElementById('xrpAddress2')
+
+        convertRAddressToXrpAddress({target: rAddress2Input})
 
         // Not supported by IE8-
         rAddressInput.oninput = convertRAddressToXrpAddress
         tagInput.oninput = convertRAddressToXrpAddress
         xrpAddressInput.oninput = convertXrpAddressToRAddress
+
+        rAddress2Input.oninput = convertRAddressToXrpAddress
+        tag2Input.oninput = convertRAddressToXrpAddress
+        xrpAddress2Input.oninput = convertXrpAddressToRAddress
     }
 
-    function convertRAddressToXrpAddress() {
-        var address = rAddressInput.value
+    function convertRAddressToXrpAddress(event) {
+        var tag
+        var version = ''
+        if (event.target.id.slice(-1) === '2') {
+            version = '2'
+            tag  = window['tag' + version + 'Input'].value
+            tag = (parseInt(tag, 10) + 1234567890).toString()
+        } else {
+            tag  = window['tag' + version + 'Input'].value
+            tag = parseInt(tag, 10).toString()
+        }
+        var address = window['rAddress' + version + 'Input'].value
         var addressBytes = rippleAddressCodec.decodeAccountID(address)
-        var tagBytes = hexToBytes(intToHex(parseInt(tagInput.value, 10), 4))
+        
+        var tagBytes = hexToBytes(intToHex(parseInt(tag, 10), 4))
         var xrpAddress = encode('xrp', convertbits(addressBytes.concat(tagBytes), 8, 5, true))
         
         // Check that the address decodes correctly
@@ -30,43 +51,62 @@
         var resTagBytes = res.slice(-4)
 
         var resAddress = rippleAddressCodec.encodeAccountID(resAddressBytes)
-        var resTag = parseInt(bytesToHex(resTagBytes), 16).toString()
+
+        var resTag
+        if (version === 2) {
+            resTag = (parseInt(bytesToHex(resTagBytes), 16) - 1234567890).toString()
+        } else {
+            resTag = parseInt(bytesToHex(resTagBytes), 16).toString()
+        }
 
         if (!arraysEqual(resAddressBytes, addressBytes) ||
             !arraysEqual(resTagBytes, tagBytes) ||
             resAddress !== address ||
-            resTag !== tagInput.value) {
+            resTag !== tag) {
 
             console.error('Decoding failed')
             console.error(resAddressBytes, addressBytes, resTagBytes, tagBytes)
-            console.error(resAddress, address, resTag, tagInput.value)
+            console.error(resAddress, address, resTag, tag)
             return
         }
 
-        xrpAddressInput.value = xrpAddress
+        window['xrpAddress' + version + 'Input'].value = xrpAddress
     }
 
-    function convertXrpAddressToRAddress() {
-        var dec = decode(xrpAddressInput.value)
+    function convertXrpAddressToRAddress(event) {
+        var tag
+
+        var version = ''
+        if (event.target.id.slice(-1) === '2') {
+            version = '2'
+        }
+
+        var xrpAddress = window['xrpAddress' + version + 'Input'].value
+        var dec = decode(xrpAddress)
         var res = convertbits(dec.data, 5, 8, false)
         var addressBytes = res.slice(0, -4)
         var tagBytes = res.slice(-4)
         var rAddress = rippleAddressCodec.encodeAccountID(addressBytes)
-        var tag = parseInt(bytesToHex(tagBytes), 16).toString()
+        
+        if (version === '2') {
+            tag = (parseInt(bytesToHex(tagBytes), 16) - 1234567890).toString()
+        } else {
+            tag = parseInt(bytesToHex(tagBytes), 16).toString()
+        }
 
         // Check that the address encodes correctly
         var addressBytes = rippleAddressCodec.decodeAccountID(rAddress)
-        var tagBytes = hexToBytes(intToHex(parseInt(tag, 10), 4))
-        var xrpAddress = encode('xrp', convertbits(addressBytes.concat(tagBytes), 8, 5, true))
+        var tagBytes = hexToBytes(intToHex(parseInt(tag, 10) + 1234567890, 4))
+        var resXrpAddress = encode('xrp', convertbits(addressBytes.concat(tagBytes), 8, 5, true))
 
-        if (xrpAddress !== xrpAddressInput.value) {
+        if (resXrpAddress !== xrpAddress) {
             console.error('Decoding failed')
-            console.error(xrpAddress, xrpAddressInput.value)
+            console.error(resXrpAddress, xrpAddress)
             return
         }
         
-        rAddressInput.value = rAddress
-        tagInput.value = tag
+        window['rAddress' + version + 'Input'].value = rAddress
+        window['tag' + version + 'Input'].value = tag
     }
 
     function arraysEqual(a, b) {
@@ -227,7 +267,8 @@
 </style>
 
 <h1>xrp address converter (proposed)</h1>
-<h2>using Bech32</h2>
+
+<h2>option 1</h2>
 
 <label for="rAddress">r address:</label> <input type="text" id="rAddress" size="50" value="r4trpUjmrK9i11h1hyCAdqeEVAuSphpCCX"><br>
 <label for="tag">tag:</label> <input type="text" id="tag" value="0"><br>
@@ -236,4 +277,15 @@
 <br>
 <label for="xrpAddress">xrp address:</label> <input type="text" id="xrpAddress" size="50"><br>
 <br>
-The above "xrp address" was generated by decoding the r address, appending the tag (as a 32-bit integer), and performing a Bech32 encoding (with HRP = 'xrp'). This tool has <b>not</b> been thoroughly tested.
+The above "xrp address" was generated by decoding the r address, appending the tag (as a 32-bit integer), and performing a Bech32 encoding (with HRP = 'xrp'). This tool has <b>not</b> been tested.
+
+<h2>option 2</h2>
+
+<label for="rAddress2">r address:</label> <input type="text" id="rAddress2" size="50" value="r4trpUjmrK9i11h1hyCAdqeEVAuSphpCCX"><br>
+<label for="tag2">tag:</label> <input type="text" id="tag2" value="0"><br>
+<br>
+<label>&lt;-&gt;</label><br>
+<br>
+<label for="xrpAddress2">xrp address:</label> <input type="text" id="xrpAddress2" size="50"><br>
+<br>
+The tag value is offset by 1234567890 (decimal) prior to encoding, so that a tag of 0 doesn't create a visual pattern (qqq...) in the encoded address. This is just a rough proof-of-concept and likely contains bugs.
